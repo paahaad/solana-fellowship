@@ -17,7 +17,7 @@ async fn main() {
     let state = router::AppState { rpc_client };
     let app = router::create_router(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(addr).await.expect("bind listener");
     println!("🚀 Axum server listening on http://{addr}");
     axum::serve(listener, app.into_make_service())

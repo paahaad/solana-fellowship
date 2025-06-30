@@ -66,9 +66,9 @@ pub struct KeypairData {
 #[derive(Deserialize)]
 pub struct CreateTokenRequest {
     #[serde(rename = "mintAuthority")]
-    pub mint_authority: String,
-    pub mint: String,
-    pub decimals: u8,
+    pub mint_authority: Option<String>,
+    pub mint: Option<String>,
+    pub decimals: Option<u8>,
 }
 
 #[derive(Serialize)]
@@ -87,10 +87,10 @@ pub struct InstructionData {
 
 #[derive(Deserialize)]
 pub struct MintTokenRequest {
-    pub mint: String,
-    pub destination: String,
-    pub authority: String,
-    pub amount: u64,
+    pub mint: Option<String>,
+    pub destination: Option<String>,
+    pub authority: Option<String>,
+    pub amount: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -108,9 +108,9 @@ pub struct SignMessageData {
 
 #[derive(Deserialize)]
 pub struct VerifyMessageRequest {
-    pub message: String,
-    pub signature: String,
-    pub pubkey: String,
+    pub message: Option<String>,
+    pub signature: Option<String>,
+    pub pubkey: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -129,10 +129,10 @@ pub struct SendSolRequest {
 
 #[derive(Deserialize)]
 pub struct SendTokenRequest {
-    pub destination: String,
-    pub mint: String,
-    pub owner: String,
-    pub amount: u64,
+    pub destination: Option<String>,
+    pub mint: Option<String>,
+    pub owner: Option<String>,
+    pub amount: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -154,12 +154,28 @@ pub async fn generate_keypair() -> Result<Json<StandardResponse<KeypairData>>, (
 pub async fn create_token(
     Json(payload): Json<CreateTokenRequest>,
 ) -> Result<Json<StandardResponse<InstructionData>>, (StatusCode, Json<StandardResponse<()>>)> {
-    let mint_authority = match Pubkey::from_str(&payload.mint_authority) {
+    // Check for missing fields
+    let mint_authority_str = match &payload.mint_authority {
+        Some(auth) => auth,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing mintAuthority".to_string())))),
+    };
+
+    let mint_str = match &payload.mint {
+        Some(mint) => mint,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing mint address".to_string())))),
+    };
+
+    let decimals = match payload.decimals {
+        Some(dec) => dec,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing decimals".to_string())))),
+    };
+
+    let mint_authority = match Pubkey::from_str(mint_authority_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid mint authority public key: {e}"))))),
     };
 
-    let mint = match Pubkey::from_str(&payload.mint) {
+    let mint = match Pubkey::from_str(mint_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid mint public key: {e}"))))),
     };
@@ -169,7 +185,7 @@ pub async fn create_token(
         &mint,
         &mint_authority,
         Some(&mint_authority),
-        payload.decimals,
+        decimals,
     ) {
         Ok(instr) => instr,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Failed to create initialize mint instruction: {e}"))))),
@@ -199,20 +215,45 @@ pub async fn create_token(
 pub async fn mint_token(
     Json(payload): Json<MintTokenRequest>,
 ) -> Result<Json<StandardResponse<InstructionData>>, (StatusCode, Json<StandardResponse<()>>)> {
-    let mint = match Pubkey::from_str(&payload.mint) {
+    // Check for missing fields
+    let mint_str = match &payload.mint {
+        Some(mint) => mint,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing mint address".to_string())))),
+    };
+
+    let destination_str = match &payload.destination {
+        Some(dest) => dest,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing destination address".to_string())))),
+    };
+
+    let authority_str = match &payload.authority {
+        Some(auth) => auth,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing authority address".to_string())))),
+    };
+
+    let amount = match payload.amount {
+        Some(amt) => amt,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing amount".to_string())))),
+    };
+
+    let mint = match Pubkey::from_str(mint_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid mint public key: {e}"))))),
     };
 
-    let destination = match Pubkey::from_str(&payload.destination) {
+    let destination = match Pubkey::from_str(destination_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid destination public key: {e}"))))),
     };
 
-    let authority = match Pubkey::from_str(&payload.authority) {
+    let authority = match Pubkey::from_str(authority_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid authority public key: {e}"))))),
     };
+
+    if amount == 0 {
+        return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Amount must be greater than 0".to_string()))));
+    }
 
     let instruction = match instruction::mint_to(
         &spl_token::id(),
@@ -220,7 +261,7 @@ pub async fn mint_token(
         &destination,
         &authority,
         &[],
-        payload.amount,
+        amount,
     ) {
         Ok(instr) => instr,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Failed to create mint to instruction: {e}"))))),
@@ -326,13 +367,29 @@ pub async fn sign_message(
 pub async fn verify_message(
     Json(payload): Json<VerifyMessageRequest>,
 ) -> Result<Json<StandardResponse<VerifyMessageData>>, (StatusCode, Json<StandardResponse<()>>)> {
+    // Check for missing fields
+    let message = match &payload.message {
+        Some(msg) => msg,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing message".to_string())))),
+    };
+
+    let signature_str = match &payload.signature {
+        Some(sig) => sig,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing signature".to_string())))),
+    };
+
+    let pubkey_str = match &payload.pubkey {
+        Some(pk) => pk,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing pubkey".to_string())))),
+    };
+
     // Parse the public key
-    let pubkey = match Pubkey::from_str(&payload.pubkey) {
+    let pubkey = match Pubkey::from_str(pubkey_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid public key: {e}"))))),
     };
 
-    let signature_bytes = match general_purpose::STANDARD.decode(&payload.signature) {
+    let signature_bytes = match general_purpose::STANDARD.decode(signature_str) {
         Ok(bytes) => bytes,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid signature format: {e}"))))),
     };
@@ -342,13 +399,13 @@ pub async fn verify_message(
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid signature: {e}"))))),
     };
 
-    let message_bytes = payload.message.as_bytes();
+    let message_bytes = message.as_bytes();
     let valid = signature.verify(&pubkey.to_bytes(), message_bytes);
 
     let data = VerifyMessageData {
         valid,
-        message: payload.message,
-        pubkey: payload.pubkey,
+        message: message.clone(),
+        pubkey: pubkey_str.clone(),
     };
 
     Ok(Json(StandardResponse::success(data)))
@@ -366,6 +423,11 @@ pub async fn send_sol(
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid to address: {e}"))))),
     };
+
+    // Check if from and to addresses are the same
+    if from_pubkey == to_pubkey {
+        return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("From and to addresses cannot be the same".to_string()))));
+    }
 
     if payload.lamports == 0 {
         return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Amount must be greater than 0".to_string()))));
@@ -397,22 +459,43 @@ pub async fn send_sol(
 pub async fn send_token(
     Json(payload): Json<SendTokenRequest>,
 ) -> Result<Json<StandardResponse<TransferInstructionData>>, (StatusCode, Json<StandardResponse<()>>)> {
-    let destination = match Pubkey::from_str(&payload.destination) {
+    // Check for missing fields
+    let destination_str = match &payload.destination {
+        Some(dest) => dest,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing destination address".to_string())))),
+    };
+
+    let mint_str = match &payload.mint {
+        Some(mint) => mint,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing mint address".to_string())))),
+    };
+
+    let owner_str = match &payload.owner {
+        Some(owner) => owner,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing owner address".to_string())))),
+    };
+
+    let amount = match payload.amount {
+        Some(amt) => amt,
+        None => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Missing amount".to_string())))),
+    };
+
+    let destination = match Pubkey::from_str(destination_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid destination address: {e}"))))),
     };
 
-    let mint = match Pubkey::from_str(&payload.mint) {
+    let mint = match Pubkey::from_str(mint_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid mint address: {e}"))))),
     };
 
-    let owner = match Pubkey::from_str(&payload.owner) {
+    let owner = match Pubkey::from_str(owner_str) {
         Ok(key) => key,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Invalid owner address: {e}"))))),
     };
 
-    if payload.amount == 0 {
+    if amount == 0 {
         return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error("Amount must be greater than 0".to_string()))));
     }
 
@@ -424,7 +507,7 @@ pub async fn send_token(
         &destination,
         &owner,
         &[],
-        payload.amount,
+        amount,
     ) {
         Ok(instr) => instr,
         Err(e) => return Err((StatusCode::BAD_REQUEST, Json(StandardResponse::error(format!("Failed to create transfer instruction: {e}"))))),
